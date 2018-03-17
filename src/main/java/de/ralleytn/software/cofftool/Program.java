@@ -475,7 +475,7 @@ public final class Program {
 		connection.setAllowUserInteraction(false);
 		connection.setDefaultUseCaches(false);
 		connection.setDoInput(true);
-		connection.setDoOutput(method.equals("POST"));
+		connection.setDoOutput("POST".equals(method));
 		connection.setInstanceFollowRedirects(false);
 		connection.setUseCaches(false);
 		
