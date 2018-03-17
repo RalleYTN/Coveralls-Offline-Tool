@@ -18,6 +18,19 @@ was created by Eclipse on your local machine to Coveralls.
 
 ## Usage
 
+### Create a coverage report with Eclipse
+
+2. Run the JUnit Tests with this button ![Step 1](https://raw.githubusercontent.com/RalleYTN/Coveralls-Offline-Tool/master/img/step1.png)
+2. Make a right click in the coverage view and click on export session ![Step 2](https://raw.githubusercontent.com/RalleYTN/Coveralls-Offline-Tool/master/img/step2.png)
+2. Export the session in XML format and name it `report.xml`. The name is important! ![Step 3](https://raw.githubusercontent.com/RalleYTN/Coveralls-Offline-Tool/master/img/step3.png)
+2. Copy the `report.xml` in the directory with the JAR of this tool.
+
+### Run the tool
+
+3. Open up your console
+3. run `java -jar <location of cofftool-X.X.X.jar> <location of the source code on default package level (make sure that unit tests are not in the same directory)> <your Travis CI access token> <the repository (YourName/YourRepoName)>`
+3. If `SUCCESS` is printed on the screen, your report was send to Coveralls
+
 ## Changelog
 
 ### Version 1.0.0
