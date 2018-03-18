@@ -42,6 +42,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Scanner;
 import java.util.function.Consumer;
 
 import javax.xml.parsers.DocumentBuilder;
@@ -96,23 +97,63 @@ public final class Program {
 
 		try {
 			
-			JSONObject jsonFile = new JSONObject();
-			jsonFile.put("service_job_id", Program.getServiceJobId(args[1], args[2]));
-			jsonFile.put("service_name", "travis-ci");
-			jsonFile.put("source_files", Program.createCoverageData(args[0]));
-			
-			File file = new File("coveralls.json");
-			
-			try(BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file)))) {
+			if(args.length == 3) {
 				
-				jsonFile.write(writer);
+				JSONObject jsonFile = new JSONObject();
+				jsonFile.put("service_job_id", Program.getServiceJobId(args[1], args[2]));
+				jsonFile.put("service_name", "travis-ci");
+				jsonFile.put("source_files", Program.createCoverageData(args[0]));
+				
+				File file = new File("coveralls.json");
+				System.out.println("[INFO] Create " + file.getName());
+				
+				try(BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file)))) {
+					
+					jsonFile.write(writer);
+				}
+				
+				System.out.println();
+				System.out.print("Do you want to submit the coverage report? If yes, type 'submit': ");
+				
+				@SuppressWarnings("resource")
+				String confirmation = new Scanner(System.in).nextLine();
+				
+				if("submit".equalsIgnoreCase(confirmation)) {
+					
+					boolean success = Program.submitToCoveralls(file);
+					
+					if(success) {
+						
+						System.out.println("[INFO] Sucessfully submitted the coverage report to Coveralls.");
+						
+					} else {
+						
+						System.err.println("[ERROR] Failed to submit the coverage report to Coveralls!");
+					}
+				
+				} else {
+					
+					System.out.println("Process will be aborted.");
+				}
+				
+			} else {
+				
+				System.err.println("Invalid number of arguments!");
 			}
-			
-			System.out.println(Program.submitToCoveralls(file) ? "SUCCESS" : "FAILURE");
 
 		} catch(IOException | SAXException | ParserConfigurationException | JSONParseException exception) {
 			
-			exception.printStackTrace();
+			System.err.println("[ERROR]");
+			System.err.println("[ERROR] ----");
+			System.err.println("[ERROR] " + exception.getClass().getName() + ": " + exception.getMessage());
+			
+			for(StackTraceElement ste : exception.getStackTrace()) {
+				
+				System.err.println("[ERROR] \t" + ste.toString());
+			}
+			
+			System.err.println("[ERROR] ----");
+			System.err.println("[ERROR]");
 		}
 	}
 	
@@ -134,6 +175,14 @@ public final class Program {
 		NodeList nodes = document.getElementsByTagName("sourcefile");
 		List<File> relevantSourceFiles = Program.getRelevantSourceFiles(new File(sourceLocation));
 		
+		System.out.println("[INFO] Create coverage report...");
+		System.out.println("[INFO]");
+		System.out.println("[INFO] ----");
+		
+		int sumLines = 0;
+		int sumCoverred = 0;
+		int sumMissed = 0;
+		
 		for(File sourceFile : relevantSourceFiles) {
 			
 			Node node = Program.getElement(nodes, sourceFile);
@@ -141,7 +190,10 @@ public final class Program {
 			if(node != null) {
 				
 				NodeList childs = node.getChildNodes();
-				Integer[] coverage = new Integer[Program.getLineCount(sourceFile)];
+				int lines = Program.getLineCount(sourceFile);
+				int coverred = 0;
+				int missed = 0;
+				Integer[] coverage = new Integer[lines];
 				
 				for(int index = 0; index < childs.getLength(); index++) {
 					
@@ -152,18 +204,44 @@ public final class Program {
 						NamedNodeMap attributes = child.getAttributes();
 						int line = Integer.parseInt(attributes.getNamedItem("nr").getNodeValue());
 						int covered = Integer.parseInt(attributes.getNamedItem("ci").getNodeValue());
+						
+						if(covered > 0) {
+							
+							coverred++;
+							
+						} else {
+							
+							missed++;
+						}
+						
 						coverage[line - 1] = covered;
 					}
 				}
 				
+				sumLines += lines;
+				sumCoverred += coverred;
+				sumMissed += missed;
+				
+				String name = Program.getName(node);
+				
 				JSONObject object = new JSONObject();
 				object.put("source_digest", Program.md5(Program.read(sourceFile)));
-				object.put("name", "src/main/java/" + Program.getName(node));
+				object.put("name", "src/main/java/" + name);
 				object.put("coverage", new JSONArray(coverage));
 				
+				System.out.println("[INFO] " + name + " - Total: " + lines + ", Relevant: " + (coverred + missed) + ", Covered: " + coverred + ", Missed: " + missed);
+				
 				sourceFiles.add(object);
+				
+			} else {
+				
+				System.out.println("[INFO] Discard " + sourceFile.getAbsolutePath() + " because it is irrelevant to the coverage report");
 			}
 		}
+		
+		System.out.println("[INFO] All Files - Total: " + sumLines + ", Relevant: " + (sumCoverred + sumMissed) + ", Covered: " + sumCoverred + ", Missed: " + sumMissed);
+		System.out.println("[INFO] ----");
+		System.out.println("[INFO]");
 		
 		return sourceFiles;
 	}
@@ -303,10 +381,13 @@ public final class Program {
 		JSONObject response = Program.doTravisRequest(token, "/repo/" + URLEncoder.encode(repo, "UTF-8") + "/builds");
 		JSONArray builds = response.getArray("builds");
 		JSONObject latestBuild = builds.getObject(0);
+		System.out.println("[INFO] Latest Build: " + latestBuild.getString("id"));
 		JSONArray jobs = latestBuild.getArray("jobs");
 		JSONObject latestJob = jobs.getObject(jobs.size() - 1);
+		long jobId = latestJob.getLong("id");
+		System.out.println("[INFO] Latest Job: " + jobId);
 		
-		return latestJob.getLong("id");
+		return jobId;
 	}
 	
 	/**
@@ -399,9 +480,13 @@ public final class Program {
 	 */
 	private static final boolean submitToCoveralls(File file) throws IOException {
 		
-		HttpURLConnection connection = Program.createConnection("https://coveralls.io/api/v1/jobs", "POST");
+		String url = "https://coveralls.io/api/v1/jobs";
+		System.out.println("[INFO] Do a POST to " + url);
+		HttpURLConnection connection = Program.createConnection(url, "POST");
 		Program.write(connection, file);
-		return connection.getResponseCode() == 200;
+		int status = connection.getResponseCode();
+		System.out.println("[INFO] " + status + " " + connection.getResponseMessage());
+		return status == 200;
 	}
 	
 	/**
@@ -415,7 +500,9 @@ public final class Program {
 	 */
 	private static final JSONObject doTravisRequest(String token, String endpoint) throws JSONParseException, IOException {
 		
-		HttpURLConnection connection = Program.createConnection("https://api.travis-ci.org" + endpoint, "GET");
+		String url = "https://api.travis-ci.org" + endpoint;
+		System.out.println("[INFO] Do a GET to " + url);
+		HttpURLConnection connection = Program.createConnection(url, "GET");
 		Program.setTravisHeaders(connection, token);
 		return new JSONObject(Program.read(connection));
 	}
@@ -430,6 +517,7 @@ public final class Program {
 	private static final String read(HttpURLConnection connection) throws IOException {
 		
 		int status = connection.getResponseCode();
+		System.out.println("[INFO] " + status + " " + connection.getResponseMessage());
 		StringBuilder builder = new StringBuilder();
 		
 		try(BufferedReader reader = new BufferedReader(new InputStreamReader(status >= 400 ? connection.getErrorStream() : connection.getInputStream()))) {
@@ -509,14 +597,22 @@ public final class Program {
 	 */
 	private static final List<File> getRelevantSourceFiles(File sourceFolder) {
 		
+		System.out.println("[INFO] Collect project source files...");
+		System.out.println("[INFO]");
+		System.out.println("[INFO] ----");
+		
 		List<File> relevantSourceFiles = new ArrayList<>();
 		Program.crawl(sourceFolder, file -> {
 			
 			if(file.isFile() && file.getName().toLowerCase().endsWith(".java") && !file.getName().equals("module-info.java")) {
 				
+				System.out.println("[INFO] Collect " + file.getAbsolutePath());
 				relevantSourceFiles.add(file);
 			}
 		});
+		
+		System.out.println("[INFO] ----");
+		System.out.println("[INFO]");
 		
 		return relevantSourceFiles;
 	}

@@ -29,9 +29,15 @@ was created by Eclipse on your local machine to Coveralls.
 
 1. Open up your console
 1. run `java -jar <location of cofftool-X.X.X.jar> <location of the source code on default package level (make sure that unit tests are not in the same directory)> <your Travis CI access token> <the repository (YourName/YourRepoName)>`
-1. If `SUCCESS` is printed on the screen, your report was send to Coveralls
+1. The program will tell you what to do from there on
 
 ## Changelog
+
+### Version 1.1.0
+
+- Fixed `pom.xml`
+- Much more output now
+- Now you get asked if you want to submit the coverage report
 
 ### Version 1.0.0
 
