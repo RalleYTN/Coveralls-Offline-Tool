@@ -30,7 +30,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * 
+ * Represents an abstract client for an API.
  * @author Ralph Niemitz/RalleYTN(ralph.niemitz@gmx.de)
  * @version 1.2.0
  * @since 1.2.0

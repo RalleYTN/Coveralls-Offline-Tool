@@ -42,9 +42,8 @@ public class MultipartWriter implements AutoCloseable {
 	private String boundary;
 	
 	/**
-	 * 
-	 * @param connection
-	 * @throws IOException
+	 * @param connection the connection on which the multipart form should be written
+	 * @throws IOException if something went wrong while creating the writer
 	 * @since 1.2.0
 	 */
 	public MultipartWriter(HttpURLConnection connection) throws IOException {
@@ -55,10 +54,10 @@ public class MultipartWriter implements AutoCloseable {
 	}
 	
 	/**
-	 * 
-	 * @param name
-	 * @param file
-	 * @throws IOException
+	 * Writes a file on the output stream.
+	 * @param name the parameter name
+	 * @param file the file
+	 * @throws IOException if something went wrong while writing
 	 * @since 1.2.0
 	 */
 	public void writeFile(String name, File file) throws IOException {

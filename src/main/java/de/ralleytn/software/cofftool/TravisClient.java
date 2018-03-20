@@ -32,7 +32,7 @@ import de.ralleytn.simple.json.JSONObject;
 import de.ralleytn.simple.json.JSONParseException;
 
 /**
- * 
+ * Represents the client that communicates with the Travis API.
  * @author Ralph Niemitz/RalleYTN(ralph.niemitz@gmx.de)
  * @version 1.2.0
  * @since 1.2.0
@@ -41,6 +41,10 @@ public class TravisClient extends Client {
 
 	private String token;
 	
+	/**
+	 * @param token the Travis CI access token
+	 * @since 1.0.0
+	 */
 	public TravisClient(String token) {
 		
 		this.token = token;
@@ -77,9 +81,9 @@ public class TravisClient extends Client {
 	}
 	
 	/**
-	 * 
-	 * @param response
-	 * @return
+	 * Gets the latest build object from the response.
+	 * @param response the response object
+	 * @return the JSON object that represents the latest build
 	 * @since 1.2.0
 	 */
 	private JSONObject getLatestBuild(JSONObject response) {

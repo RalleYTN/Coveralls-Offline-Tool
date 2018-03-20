@@ -28,7 +28,7 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 
 /**
- * 
+ * Represents the client that communicates with the Coveralls API.
  * @author Ralph Niemitz/RalleYTN(ralph.niemitz@gmx.de)
  * @version 1.2.0
  * @since 1.2.0

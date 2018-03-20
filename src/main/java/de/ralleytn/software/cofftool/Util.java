@@ -54,8 +54,8 @@ public final class Util {
 	private Util() {}
 	
 	/**
-	 * 
-	 * @param exception
+	 * Prints an exception on the screen.
+	 * @param exception the exception that should be printed
 	 * @since 1.2.0
 	 */
 	public static final void printException(Exception exception) {
@@ -74,35 +74,45 @@ public final class Util {
 	}
 	
 	/**
-	 * Combines the package name with the source file name.
-	 * @param node the node of the source file
-	 * @return the complete source file name on default package level
-	 * @since 1.0.0
+	 * @param sourceLocation the location of the source files on default package level
+	 * @param sourceFile the source file
+	 * @return the full source file name
+	 * @since 1.2.0
 	 */
-	public static final String getFullName(Node node) {
+	public static final String getFullName(String sourceLocation, File sourceFile) {
 		
-		Node parent = node.getParentNode();
-		String packageName = parent.getAttributes().getNamedItem("name").getNodeValue();
-		String fileName = node.getAttributes().getNamedItem("name").getNodeValue();
+		String absolutePath = sourceFile.getAbsolutePath().replace('\\', '/');
+		return absolutePath.substring(new File(sourceLocation).getAbsolutePath().length() + 1);
+	}
+	
+	/**
+	 * @param node the XML node
+	 * @param attribute the attribute name
+	 * @return the attribute value of the given attribute in the given XML node
+	 * @since 1.2.0
+	 */
+	public static final String getXMLAttributeValue(Node node, String attribute) {
 		
-		return packageName + "/" + fileName;
+		return node.getAttributes().getNamedItem(attribute).getNodeValue();
 	}
 	
 	/**
 	 * Searches for the corresponding node of the given source file.
 	 * @param nodes the node list in which should be searched
+	 * @param sourceLocation
 	 * @param sourceFile the source file
 	 * @return the node or {@code null} if there is no node for the given source file
 	 * @since 1.0.0
 	 */
-	public static final Node getNodeForSourceFile(NodeList nodes, File sourceFile) {
+	public static final Node getNodeForSourceFile(NodeList nodes, String sourceLocation, File sourceFile) {
 		
 		for(int index = 0; index < nodes.getLength(); index++) {
 			
 			Node node = nodes.item(index);
+			String fullName = Util.getXMLAttributeValue(node.getParentNode(), "name") + "/" + Util.getXMLAttributeValue(node, "name");
+			
+			if(sourceFile.getAbsolutePath().replace("\\", "/").endsWith(fullName)) {
 
-			if(sourceFile.getAbsolutePath().replace("\\", "/").endsWith(Util.getFullName(node))) {
-				
 				return node;
 			}
 		}

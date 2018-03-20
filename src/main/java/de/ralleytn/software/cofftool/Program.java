@@ -85,6 +85,8 @@ public final class Program {
 
 		try {
 			
+			args = new String[] {System.getProperty("user.dir") + "/../Library - SimpleAudio/src", "NnlBMmFnJWZlEs_Lg5cVjg", "RalleYTN/SimpleAudio"};
+			
 			if(args.length == 3) {
 				
 				long serviceJobId = new TravisClient(args[1]).getLatestServiceJobId(args[2]);
@@ -105,10 +107,10 @@ public final class Program {
 	}
 	
 	/**
-	 * 
-	 * @param serviceJobId
-	 * @param coverageReportData
-	 * @return
+	 * Creates the JSON object that will be sent to Coveralls.
+	 * @param serviceJobId the service job id
+	 * @param coverageReportData the coverage report data array
+	 * @return the JSON object
 	 * @since 1.2.0
 	 */
 	private static final JSONObject createCoverageReportObject(long serviceJobId, JSONArray coverageReportData) {
@@ -122,9 +124,9 @@ public final class Program {
 	}
 	
 	/**
-	 * 
-	 * @param coverageReport
-	 * @throws IOException
+	 * Writes the JSON object that should be send to Coveralls in a file.
+	 * @param coverageReport the coverage report object
+	 * @throws IOException if something went wrong while writing
 	 * @since 1.2.0
 	 */
 	private static final void writeCoverageReportFile(JSONObject coverageReport) throws IOException {
@@ -138,8 +140,8 @@ public final class Program {
 	}
 	
 	/**
-	 * 
-	 * @throws IOException
+	 * Asks the user to type in 'submit' before sending the report to Coveralls
+	 * @throws IOException if something went wrong while sending the report
 	 * @since 1.2.0
 	 */
 	private static final void askToSendCoverageReport() throws IOException {
@@ -182,10 +184,9 @@ public final class Program {
 	private static final JSONArray createCoverageReportData(String sourceLocation) throws SAXException, IOException, ParserConfigurationException {
 		
 		JSONArray sourceFiles = new JSONArray();
-		
+		List<File> relevantSourceFiles = Program.collectSourceFiles(new File(sourceLocation));
 		Document document = Util.parseXML(Program.REPORT_XML);
 		NodeList nodes = document.getElementsByTagName("sourcefile");
-		List<File> relevantSourceFiles = Program.collectSourceFiles(new File(sourceLocation));
 		
 		System.out.println("[INFO] Create coverage report...");
 		System.out.println("[INFO]");
@@ -197,22 +198,24 @@ public final class Program {
 		
 		for(File sourceFile : relevantSourceFiles) {
 			
-			Node node = Util.getNodeForSourceFile(nodes, sourceFile);
+			Node node = Util.getNodeForSourceFile(nodes, sourceLocation, sourceFile);
+			int lines = Util.getLineCount(sourceFile);
+			sumLines += lines;
+			Integer[] coverage = new Integer[lines];
+			String fullName = Util.getFullName(sourceLocation, sourceFile);
+			int coverred = 0;
+			int missed = 0;
 			
 			if(node != null) {
 				
 				NodeList childs = node.getChildNodes();
-				int lines = Util.getLineCount(sourceFile);
-				int coverred = 0;
-				int missed = 0;
-				Integer[] coverage = new Integer[lines];
 				
 				for(int index = 0; index < childs.getLength(); index++) {
 					
 					Node child = childs.item(index);
 					
 					if(child.getNodeName().equals("line")) {
-						
+
 						NamedNodeMap attributes = child.getAttributes();
 						int line = Integer.parseInt(attributes.getNamedItem("nr").getNodeValue());
 						int covered = Integer.parseInt(attributes.getNamedItem("ci").getNodeValue());
@@ -230,25 +233,12 @@ public final class Program {
 					}
 				}
 				
-				sumLines += lines;
 				sumCoverred += coverred;
 				sumMissed += missed;
-				
-				String name = Util.getFullName(node);
-				
-				JSONObject object = new JSONObject();
-				object.put("source_digest", Util.createMD5(Util.readFile(sourceFile)));
-				object.put("name", "src/main/java/" + name);
-				object.put("coverage", new JSONArray(coverage));
-				
-				System.out.println("[INFO] " + name + " - Total: " + lines + ", Relevant: " + (coverred + missed) + ", Covered: " + coverred + ", Missed: " + missed);
-				
-				sourceFiles.add(object);
-				
-			} else {
-				
-				System.out.println("[INFO] Discard " + sourceFile.getAbsolutePath() + " because it is irrelevant to the coverage report");
 			}
+
+			System.out.println("[INFO] " + fullName + " - Total: " + lines + ", Relevant: " + (coverred + missed) + ", Covered: " + coverred + ", Missed: " + missed);
+			sourceFiles.add(Program.createCoverageReportDataElement(coverage, sourceLocation, sourceFile));
 		}
 		
 		System.out.println("[INFO] All Files - Total: " + sumLines + ", Relevant: " + (sumCoverred + sumMissed) + ", Covered: " + sumCoverred + ", Missed: " + sumMissed);
@@ -256,6 +246,24 @@ public final class Program {
 		System.out.println("[INFO]");
 		
 		return sourceFiles;
+	}
+	
+	/**
+	 * Creates an element in the coverage report data array.
+	 * @param coverage the coverage data
+	 * @param sourceFile the source file
+	 * @return a JSON object that should be part of the coverage report data array
+	 * @throws IOException if something went wrong while reading the source file for the MD5 hash
+	 * @since 1.2.0
+	 */
+	private static final JSONObject createCoverageReportDataElement(Integer[] coverage, String sourceLocation, File sourceFile) throws IOException {
+		
+		JSONObject object = new JSONObject();
+		object.put("source_digest", Util.createMD5(Util.readFile(sourceFile)));
+		object.put("name", "src/main/java/" + Util.getFullName(sourceLocation, sourceFile));
+		object.put("coverage", new JSONArray(coverage));
+		
+		return object;
 	}
 	
 	/**
