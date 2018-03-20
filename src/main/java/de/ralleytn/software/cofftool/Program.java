@@ -23,30 +23,15 @@
  */
 package de.ralleytn.software.cofftool;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
-import java.util.function.Consumer;
 
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
 import org.w3c.dom.Document;
@@ -63,11 +48,14 @@ import de.ralleytn.simple.json.JSONParseException;
  * Just a small command line tool to submit coverage data that was collected by Eclipse to Coveralls.
  * A {@code report.xml} and a {@code report.dtd} file should be in the same directory as this program.
  * @author Ralph Niemitz/RalleYTN(ralph.niemitz@gmx.de)
- * @version 1.0.0
+ * @version 1.2.0
  * @since 1.0.0
  */
 public final class Program {
 
+	private static final File REPORT_XML = new File("report.xml");
+	private static final File REPORT_JSON = new File("coveralls.json");
+	
 	private Program() {}
 	
 	/**
@@ -99,42 +87,11 @@ public final class Program {
 			
 			if(args.length == 3) {
 				
-				JSONObject jsonFile = new JSONObject();
-				jsonFile.put("service_job_id", Program.getServiceJobId(args[1], args[2]));
-				jsonFile.put("service_name", "travis-ci");
-				jsonFile.put("source_files", Program.createCoverageData(args[0]));
-				
-				File file = new File("coveralls.json");
-				System.out.println("[INFO] Create " + file.getName());
-				
-				try(BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file)))) {
-					
-					jsonFile.write(writer);
-				}
-				
-				System.out.println();
-				System.out.print("Do you want to submit the coverage report? If yes, type 'submit': ");
-				
-				@SuppressWarnings("resource")
-				String confirmation = new Scanner(System.in).nextLine();
-				
-				if("submit".equalsIgnoreCase(confirmation)) {
-					
-					boolean success = Program.submitToCoveralls(file);
-					
-					if(success) {
-						
-						System.out.println("[INFO] Sucessfully submitted the coverage report to Coveralls.");
-						
-					} else {
-						
-						System.err.println("[ERROR] Failed to submit the coverage report to Coveralls!");
-					}
-				
-				} else {
-					
-					System.out.println("Process will be aborted.");
-				}
+				long serviceJobId = new TravisClient(args[1]).getLatestServiceJobId(args[2]);
+				JSONArray coverageReportData = Program.createCoverageReportData(args[0]);
+				JSONObject object = Program.createCoverageReportObject(serviceJobId, coverageReportData);
+				Program.writeCoverageReportFile(object);
+				Program.askToSendCoverageReport();
 				
 			} else {
 				
@@ -143,17 +100,72 @@ public final class Program {
 
 		} catch(IOException | SAXException | ParserConfigurationException | JSONParseException exception) {
 			
-			System.err.println("[ERROR]");
-			System.err.println("[ERROR] ----");
-			System.err.println("[ERROR] " + exception.getClass().getName() + ": " + exception.getMessage());
+			Util.printException(exception);
+		}
+	}
+	
+	/**
+	 * 
+	 * @param serviceJobId
+	 * @param coverageReportData
+	 * @return
+	 * @since 1.2.0
+	 */
+	private static final JSONObject createCoverageReportObject(long serviceJobId, JSONArray coverageReportData) {
+		
+		JSONObject object = new JSONObject();
+		object.put("service_job_id", serviceJobId);
+		object.put("service_name", "travis-ci");
+		object.put("source_files", coverageReportData);
+		
+		return object;
+	}
+	
+	/**
+	 * 
+	 * @param coverageReport
+	 * @throws IOException
+	 * @since 1.2.0
+	 */
+	private static final void writeCoverageReportFile(JSONObject coverageReport) throws IOException {
+		
+		System.out.println("[INFO] Create " + Program.REPORT_JSON.getName());
+		
+		try(BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(Program.REPORT_JSON)))) {
 			
-			for(StackTraceElement ste : exception.getStackTrace()) {
+			coverageReport.write(writer);
+		}
+	}
+	
+	/**
+	 * 
+	 * @throws IOException
+	 * @since 1.2.0
+	 */
+	private static final void askToSendCoverageReport() throws IOException {
+		
+		System.out.println();
+		System.out.print("Do you want to submit the coverage report? If yes, type 'submit': ");
+		
+		@SuppressWarnings("resource")
+		String confirmation = new Scanner(System.in).nextLine();
+		
+		if("submit".equalsIgnoreCase(confirmation)) {
+			
+			boolean success = new CoverallsClient().submitCoverageReport(Program.REPORT_JSON);
+			
+			if(success) {
 				
-				System.err.println("[ERROR] \t" + ste.toString());
+				System.out.println("[INFO] Sucessfully submitted the coverage report to Coveralls.");
+				
+			} else {
+				
+				System.err.println("[ERROR] Failed to submit the coverage report to Coveralls!");
 			}
+		
+		} else {
 			
-			System.err.println("[ERROR] ----");
-			System.err.println("[ERROR]");
+			System.out.println("Process will be aborted.");
 		}
 	}
 	
@@ -167,13 +179,13 @@ public final class Program {
 	 * @throws ParserConfigurationException if the XML of the {@code report.xml} file is invalid
 	 * @since 1.0.0
 	 */
-	private static final JSONArray createCoverageData(String sourceLocation) throws SAXException, IOException, ParserConfigurationException {
+	private static final JSONArray createCoverageReportData(String sourceLocation) throws SAXException, IOException, ParserConfigurationException {
 		
 		JSONArray sourceFiles = new JSONArray();
 		
-		Document document = Program.parse(new File("report.xml"));
+		Document document = Util.parseXML(Program.REPORT_XML);
 		NodeList nodes = document.getElementsByTagName("sourcefile");
-		List<File> relevantSourceFiles = Program.getRelevantSourceFiles(new File(sourceLocation));
+		List<File> relevantSourceFiles = Program.collectSourceFiles(new File(sourceLocation));
 		
 		System.out.println("[INFO] Create coverage report...");
 		System.out.println("[INFO]");
@@ -185,12 +197,12 @@ public final class Program {
 		
 		for(File sourceFile : relevantSourceFiles) {
 			
-			Node node = Program.getElement(nodes, sourceFile);
+			Node node = Util.getNodeForSourceFile(nodes, sourceFile);
 			
 			if(node != null) {
 				
 				NodeList childs = node.getChildNodes();
-				int lines = Program.getLineCount(sourceFile);
+				int lines = Util.getLineCount(sourceFile);
 				int coverred = 0;
 				int missed = 0;
 				Integer[] coverage = new Integer[lines];
@@ -222,10 +234,10 @@ public final class Program {
 				sumCoverred += coverred;
 				sumMissed += missed;
 				
-				String name = Program.getName(node);
+				String name = Util.getFullName(node);
 				
 				JSONObject object = new JSONObject();
-				object.put("source_digest", Program.md5(Program.read(sourceFile)));
+				object.put("source_digest", Util.createMD5(Util.readFile(sourceFile)));
 				object.put("name", "src/main/java/" + name);
 				object.put("coverage", new JSONArray(coverage));
 				
@@ -247,398 +259,30 @@ public final class Program {
 	}
 	
 	/**
-	 * Combines the package name with the source file name.
-	 * @param node the node of the source file
-	 * @return the complete source file name on default package level
-	 * @since 1.0.0
-	 */
-	private static final String getName(Node node) {
-		
-		Node parent = node.getParentNode();
-		String packageName = parent.getAttributes().getNamedItem("name").getNodeValue();
-		String fileName = node.getAttributes().getNamedItem("name").getNodeValue();
-		
-		return packageName + "/" + fileName;
-	}
-	
-	/**
-	 * Searches for the corresponding node of the given source file.
-	 * @param nodes the node list in which should be searched
-	 * @param sourceFile the source file
-	 * @return the node or {@code null} if there is no node for the given source file
-	 * @since 1.0.0
-	 */
-	private static final Node getElement(NodeList nodes, File sourceFile) {
-		
-		for(int index = 0; index < nodes.getLength(); index++) {
-			
-			Node node = nodes.item(index);
-
-			if(sourceFile.getAbsolutePath().replace("\\", "/").endsWith(Program.getName(node))) {
-				
-				return node;
-			}
-		}
-		
-		return null;
-	}
-	
-	/**
-	 * Counts how many lines there are in a single source file.
-	 * @param file the source file
-	 * @return the number of lines in this file
-	 * @throws IOException if the file could not be read
-	 * @since 1.0.0
-	 */
-	private static final int getLineCount(File file) throws IOException {
-		
-		try(BufferedReader reader = new BufferedReader(new FileReader(file))) {
-			
-			int lines = 0;
-			
-			while(reader.readLine() != null) {
-				
-				lines++;
-			}
-			
-			return lines;
-		}
-	}
-	
-	/**
-	 * Reads the file binary.
-	 * @param file the file that should be read
-	 * @return the binary data of the given file
-	 * @throws IOException if something went wrong while reading the file
-	 * @since 1.0.0
-	 */
-	private static final byte[] read(File file) throws IOException {
-		
-		try(InputStream in = new FileInputStream(file);
-			ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-			
-			int read = 0;
-			byte[] buffer = new byte[4096];
-			
-			while((read = in.read(buffer)) != -1) {
-				
-				out.write(buffer, 0, read);
-			}
-			
-			return out.toByteArray();
-		}
-	}
-	
-	/**
-	 * Hashes a set of binary data.
-	 * @param data the binary data
-	 * @return a hexadecimal MD5 hash of the given data
-	 * @since 1.0.0
-	 */
-	private static final String md5(byte[] data) {
-
-		try {
-			
-			return Program.toHexString(MessageDigest.getInstance("MD5").digest(data));
-			
-		} catch(NoSuchAlgorithmException exception) {
-			
-			// WILL NEVER HAPPEN!
-		}
-		
-		return null;
-	}
-	
-	/**
-	 * Converts a set of binary data to a hexadecimal string.
-	 * @param binary the binary data
-	 * @return the created hexadecimal string
-	 * @since 1.0.0
-	 */
-	private static final String toHexString(byte[] binary) {
-		
-		StringBuilder hexBuilder = new StringBuilder();
-		
-		for(byte b : binary) {
-			
-			hexBuilder.append(Integer.toString((b & 0xFF) + 0x100, 16).substring(1));
-		}
-		
-		return hexBuilder.toString();
-	}
-	
-	/**
-	 * Grabs the latest job id of your latest build of the given repository.
-	 * @param token your Travis CI access token
-	 * @param repo the repository (User/Repo)
-	 * @return the job id
-	 * @throws JSONParseException if the response JSON could not be parsed
-	 * @throws IOException if there was an I/O error in the request
-	 * @since 1.0.0
-	 */
-	private static final long getServiceJobId(String token, String repo) throws JSONParseException, IOException {
-		
-		JSONObject response = Program.doTravisRequest(token, "/repo/" + URLEncoder.encode(repo, "UTF-8") + "/builds");
-		JSONArray builds = response.getArray("builds");
-		JSONObject latestBuild = builds.getObject(0);
-		System.out.println("[INFO] Latest Build: " + latestBuild.getString("id"));
-		JSONArray jobs = latestBuild.getArray("jobs");
-		JSONObject latestJob = jobs.getObject(jobs.size() - 1);
-		long jobId = latestJob.getLong("id");
-		System.out.println("[INFO] Latest Job: " + jobId);
-		
-		return jobId;
-	}
-	
-	/**
-	 * Writes a multipart request body.
-	 * @param connection the connection on which the body should be written
-	 * @param file the file that should be part of the multipart
-	 * @throws IOException if something went wrong while writing
-	 * @since 1.0.0
-	 */
-	private static final void write(HttpURLConnection connection, File file) throws IOException {
-		
-		String boundary = Program.generateBoundary();
-		connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-		
-		try(BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(connection.getOutputStream(), StandardCharsets.UTF_8))) {
-			
-			writer.write("--" + boundary);
-			writer.write("\r\n");
-			writer.write("Content-Disposition: form-data; name=\"json_file\"; filename=\"");
-			writer.write(file.getName());
-			writer.write("\"\r\nContent-Type: application/json; charset=UTF-8\r\n");
-			writer.write("Content-Transfer-Encoding: binary\r\n\r\n");
-			writer.write(new String(Program.read(file), StandardCharsets.UTF_8));
-			writer.write("\r\n");
-			writer.write("--" + boundary + "--");
-		}
-	}
-	
-	/**
-	 * Generates a new boundary based on the timestamp.
-	 * @return the generated boundary
-	 * @throws IOException if there were problems with the conversion of timetamp to {@code byte} array
-	 * @since 1.0.0
-	 */
-	private static final String generateBoundary() throws IOException {
-		
-		long timestamp = System.currentTimeMillis();
-		
-		return Program.md5(Program.toByteArray(new int[] {
-						   
-			Program.getOctet(timestamp, 0),
-			Program.getOctet(timestamp, 1),
-			Program.getOctet(timestamp, 2),
-			Program.getOctet(timestamp, 3),
-			Program.getOctet(timestamp, 4),
-			Program.getOctet(timestamp, 5),
-			Program.getOctet(timestamp, 6),
-			Program.getOctet(timestamp, 7)
-		}));
-	}
-	
-	/**
-	 * Gets an octet from a bit sequence.
-	 * @param integer the bit sequence
-	 * @param position the octet position
-	 * @return the octet
-	 * @since 1.0.0
-	 */
-	private static final int getOctet(long integer, int position) {
-		
-		return (int)((integer >> (position * 8)) & 0xFF);
-	}
-	
-	/**
-	 * Converts an {@code int} array to a {@code byte} array.
-	 * @param integers the {@code int} array
-	 * @return the created {@code byte} array
-	 * @throws IOException will probably never happen
-	 * @since 1.0.0
-	 */
-	private static final byte[] toByteArray(int[] integers) throws IOException {
-		
-		try(ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
-			
-			for(int integer : integers) {
-				
-				buffer.write(integer);
-			}
-			
-			return buffer.toByteArray();
-		}
-	}
-	
-	/**
-	 * Submits a file to Coveralls.
-	 * @param file the file that should be submitted
-	 * @return {@code true} if the action was successful, else {@code false}
-	 * @throws IOException if there was an I/O error in the request
-	 * @since 1.0.0
-	 */
-	private static final boolean submitToCoveralls(File file) throws IOException {
-		
-		String url = "https://coveralls.io/api/v1/jobs";
-		System.out.println("[INFO] Do a POST to " + url);
-		HttpURLConnection connection = Program.createConnection(url, "POST");
-		Program.write(connection, file);
-		int status = connection.getResponseCode();
-		System.out.println("[INFO] " + status + " " + connection.getResponseMessage());
-		return status == 200;
-	}
-	
-	/**
-	 * Does a GET request against the Travis CI API.
-	 * @param token your Travis CI access token
-	 * @param endpoint the API endpoint
-	 * @return the response object
-	 * @throws JSONParseException if the response JSON could not be parsed
-	 * @throws IOException if there was an I/O error in the request
-	 * @since 1.0.0
-	 */
-	private static final JSONObject doTravisRequest(String token, String endpoint) throws JSONParseException, IOException {
-		
-		String url = "https://api.travis-ci.org" + endpoint;
-		System.out.println("[INFO] Do a GET to " + url);
-		HttpURLConnection connection = Program.createConnection(url, "GET");
-		Program.setTravisHeaders(connection, token);
-		return new JSONObject(Program.read(connection));
-	}
-	
-	/**
-	 * Reads the response of a HTTP/1.1 request.
-	 * @param connection the connection that performed a request
-	 * @return the response as a string
-	 * @throws IOException if the response could not be read
-	 * @since 1.0.0
-	 */
-	private static final String read(HttpURLConnection connection) throws IOException {
-		
-		int status = connection.getResponseCode();
-		System.out.println("[INFO] " + status + " " + connection.getResponseMessage());
-		StringBuilder builder = new StringBuilder();
-		
-		try(BufferedReader reader = new BufferedReader(new InputStreamReader(status >= 400 ? connection.getErrorStream() : connection.getInputStream()))) {
-			
-			String line = null;
-			
-			while((line = reader.readLine()) != null) {
-				
-				builder.append(line);
-			}
-		}
-		
-		return builder.toString();
-	}
-	
-	/**
-	 * Sets the HTTP/1.1 headers that Travis CI wants to see.
-	 * @param connection the instance of {@linkplain HttpURLConnection} in which the headers should be set
-	 * @param token your Travis CI access token
-	 * @since 1.0.0
-	 */
-	private static final void setTravisHeaders(HttpURLConnection connection, String token) {
-		
-		connection.setRequestProperty("Travis-API-Version", "3");
-		connection.setRequestProperty("Authorization", "token " + token);
-		connection.setRequestProperty("User-Agent", "Coveralls Offline Tool");
-	}
-	
-	/**
-	 * Creates a new instance of {@linkplain HttpURLConnection}.
-	 * @param url the target URL
-	 * @param method the request method
-	 * @return the created connection
-	 * @throws IOException if no connection could be opened
-	 * @since 1.0.0
-	 */
-	private static final HttpURLConnection createConnection(String url, String method) throws IOException {
-		
-		HttpURLConnection connection = (HttpURLConnection)new URL(url).openConnection();
-		connection.setRequestMethod(method);
-		connection.setReadTimeout(60000);
-		connection.setConnectTimeout(10000);
-		connection.setAllowUserInteraction(false);
-		connection.setDefaultUseCaches(false);
-		connection.setDoInput(true);
-		connection.setDoOutput("POST".equals(method));
-		connection.setInstanceFollowRedirects(false);
-		connection.setUseCaches(false);
-		
-		return connection;
-	}
-	
-	/**
-	 * Parses an XML file.
-	 * @param file the XML file
-	 * @return the parsed XML file as DOM
-	 * @throws SAXException if the XML is invalid
-	 * @throws IOException if the file could not be read
-	 * @throws ParserConfigurationException if the XML is invalid
-	 * @since 1.0.0
-	 */
-	private static final Document parse(File file) throws SAXException, IOException, ParserConfigurationException {
-
-		DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-		DocumentBuilder builder = factory.newDocumentBuilder();
-		Document document = builder.parse(file);
-		document.getDocumentElement().normalize();
-			
-		return document;
-	}
-	
-	/**
-	 * Searches for all relevant source files. (relevant is defined by all .java files except the module-info.java)
+	 * Searches for all source files. (except the module-info.java)
 	 * @param sourceFolder the location of the source files on default package level
 	 * @return a list with the relevant source files
 	 * @since 1.0.0
 	 */
-	private static final List<File> getRelevantSourceFiles(File sourceFolder) {
+	private static final List<File> collectSourceFiles(File sourceFolder) {
 		
 		System.out.println("[INFO] Collect project source files...");
 		System.out.println("[INFO]");
 		System.out.println("[INFO] ----");
 		
-		List<File> relevantSourceFiles = new ArrayList<>();
-		Program.crawl(sourceFolder, file -> {
+		List<File> sourceFiles = new ArrayList<>();
+		Util.crawlThroughFileTree(sourceFolder, file -> {
 			
 			if(file.isFile() && file.getName().toLowerCase().endsWith(".java") && !file.getName().equals("module-info.java")) {
 				
 				System.out.println("[INFO] Collect " + file.getAbsolutePath());
-				relevantSourceFiles.add(file);
+				sourceFiles.add(file);
 			}
 		});
 		
 		System.out.println("[INFO] ----");
 		System.out.println("[INFO]");
 		
-		return relevantSourceFiles;
-	}
-	
-	/**
-	 * Crawls through a directory tree recursively.
-	 * @param root the tree root
-	 * @param callback the callback function that is called for every element in the tree
-	 * @since 1.0.0
-	 */
-	private static final void crawl(File root, Consumer<File> callback) {
-		
-		File[] subFiles = root.listFiles();
-		
-		if(subFiles != null) {
-			
-			for(File subFile : subFiles) {
-				
-				if(subFile.isDirectory()) {
-					
-					Program.crawl(subFile, callback);
-					
-				}
-				
-				callback.accept(subFile);
-			}
-		}
+		return sourceFiles;
 	}
 }
