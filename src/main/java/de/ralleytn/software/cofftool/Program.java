@@ -84,9 +84,7 @@ public final class Program {
 	public static void main(String[] args) {
 
 		try {
-			
-			args = new String[] {System.getProperty("user.dir") + "/../Library - SimpleAudio/src", "NnlBMmFnJWZlEs_Lg5cVjg", "RalleYTN/SimpleAudio"};
-			
+
 			if(args.length == 3) {
 				
 				long serviceJobId = new TravisClient(args[1]).getLatestServiceJobId(args[2]);
